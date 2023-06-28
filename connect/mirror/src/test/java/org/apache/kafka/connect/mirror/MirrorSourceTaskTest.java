@@ -34,6 +34,9 @@ import org.apache.kafka.connect.source.SourceRecord;
 import org.apache.kafka.connect.source.SourceTaskContext;
 import org.apache.kafka.connect.storage.OffsetStorageReader;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.internal.stubbing.answers.CallsRealMethods;
@@ -48,11 +51,13 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Semaphore;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
@@ -65,6 +70,41 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 public class MirrorSourceTaskTest {
+
+    private static Stream<Arguments> mirrorSourceConfigProviderForSeekBehaviorTests() {
+        Set<TopicPartition> topicPartitions = Sets.newSet(
+                new TopicPartition("previouslyReplicatedTopic", 8),
+                new TopicPartition("previouslyReplicatedTopic1", 0),
+                new TopicPartition("previouslyReplicatedTopic", 1),
+                new TopicPartition("newTopicToReplicate1", 1),
+                new TopicPartition("newTopicToReplicate1", 4),
+                new TopicPartition("newTopicToReplicate2", 0)
+        );
+        return Stream.of(
+                Arguments.of(
+                    topicPartitions,
+                    TestUtils.makeProps(
+                    "task.assigned.partitions",
+                    encodeTopicPartitionsToString(topicPartitions),
+                    "fail.on.offset.fetch.errors.at.start",
+                    "true"
+                )),
+                Arguments.of(
+                    topicPartitions,
+                    TestUtils.makeProps(
+                    "task.assigned.partitions",
+                    encodeTopicPartitionsToString(topicPartitions),
+                    "fail.on.offset.fetch.errors.at.start",
+                    "false"
+                )),
+                Arguments.of(
+                    topicPartitions,
+                    TestUtils.makeProps(
+                    "task.assigned.partitions",
+                    encodeTopicPartitionsToString(topicPartitions)
+                ))
+        );
+    }
 
     @Test
     public void testSerde() {
@@ -225,8 +265,9 @@ public class MirrorSourceTaskTest {
         }
     }
 
-    @Test
-    public void testSeekBehaviorDuringStart() {
+    @ParameterizedTest
+    @MethodSource("mirrorSourceConfigProviderForSeekBehaviorTests")
+    public void testSeekBehaviorDuringStart(Set<TopicPartition> topicPartitions, Map<String, String> configProps) {
         // Setting up mock behavior.
         @SuppressWarnings("unchecked")
         KafkaConsumer<byte[], byte[]> mockConsumer = mock(KafkaConsumer.class);
@@ -245,18 +286,9 @@ public class MirrorSourceTaskTest {
         mockMirrorUtils.when(() -> MirrorUtils.newConsumer(anyMap())).thenReturn(mockConsumer);
         mockMirrorUtils.when(() -> MirrorUtils.newProducer(anyMap())).thenReturn(mockProducer);
 
-        Set<TopicPartition> topicPartitions = Sets.newSet(
-                new TopicPartition("previouslyReplicatedTopic", 8),
-                new TopicPartition("previouslyReplicatedTopic1", 0),
-                new TopicPartition("previouslyReplicatedTopic", 1),
-                new TopicPartition("newTopicToReplicate1", 1),
-                new TopicPartition("newTopicToReplicate1", 4),
-                new TopicPartition("newTopicToReplicate2", 0)
-        );
-
         long arbitraryCommittedOffset = 4L;
         long offsetToSeek = arbitraryCommittedOffset + 1L;
-        when(mockOffsetStorageReader.offset(anyMap())).thenAnswer(testInvocation -> {
+        when(mockOffsetStorageReader.offset(anyMap(), anyBoolean())).thenAnswer(testInvocation -> {
 
             Map<String, Object> topicPartitionOffsetMap = testInvocation.getArgument(0);
             String topicName = topicPartitionOffsetMap.get("topic").toString();
@@ -269,8 +301,6 @@ public class MirrorSourceTaskTest {
             return topicPartitionOffsetMap;
         });
 
-        Map<String, String> configProps = TestUtils.makeProps("task.assigned.partitions",
-                encodeTopicPartitionsToString(topicPartitions));
 
         MirrorSourceTask mirrorSourceTask = new MirrorSourceTask(mockConsumer, mockMetrics, sourceClusterName,
                 new DefaultReplicationPolicy(), 50, mockProducer, null, null, null);

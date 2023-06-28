@@ -18,6 +18,7 @@ package org.apache.kafka.connect.storage;
 
 import org.apache.kafka.connect.data.SchemaAndValue;
 import org.apache.kafka.connect.errors.ConnectException;
+import org.apache.kafka.connect.errors.DataException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -65,7 +66,7 @@ public class OffsetStorageReaderImpl implements CloseableOffsetStorageReader {
 
     @Override
     @SuppressWarnings("unchecked")
-    public <T> Map<Map<String, T>, Map<String, Object>> offsets(Collection<Map<String, T>> partitions) {
+    public <T> Map<Map<String, T>, Map<String, Object>> offsets(Collection<Map<String, T>> partitions, boolean failOnError) {
         // Serialize keys so backing store can work with them
         Map<ByteBuffer, Map<String, T>> serializedToOriginal = new HashMap<>(partitions.size());
         for (Map<String, T> key : partitions) {
@@ -76,9 +77,17 @@ public class OffsetStorageReaderImpl implements CloseableOffsetStorageReader {
                 ByteBuffer keyBuffer = (keySerialized != null) ? ByteBuffer.wrap(keySerialized) : null;
                 serializedToOriginal.put(keyBuffer, key);
             } catch (Throwable t) {
-                log.error("CRITICAL: Failed to serialize partition key when getting offsets for task with "
-                        + "namespace {}. No value for this data will be returned, which may break the "
-                        + "task or cause it to skip some data.", namespace, t);
+                String message = String.format("CRITICAL: Failed to serialize partition key when getting offsets for task with "
+                        + "namespace %s.", namespace);
+                if (!failOnError) {
+                    message = message.concat(" No value for this data will be returned, which may break the "
+                        + "task or cause it to skip some data.");
+                }
+                log.error(message, t);
+
+                if (failOnError) {
+                    throw new DataException(message, t);
+                }
             }
         }
 
@@ -120,8 +129,12 @@ public class OffsetStorageReaderImpl implements CloseableOffsetStorageReader {
             try {
                 // Since null could be a valid key, explicitly check whether map contains the key
                 if (!serializedToOriginal.containsKey(rawEntry.getKey())) {
-                    log.error("Should be able to map {} back to a requested partition-offset key, backing "
+                    String message = String.format("Should be able to map %s back to a requested partition-offset key, backing "
                             + "store may have returned invalid data", rawEntry.getKey());
+                    log.error(message);
+                    if (failOnError) {
+                        throw new ConnectException(message);
+                    }
                     continue;
                 }
                 Map<String, T> origKey = serializedToOriginal.get(rawEntry.getKey());
@@ -131,14 +144,28 @@ public class OffsetStorageReaderImpl implements CloseableOffsetStorageReader {
 
                 result.put(origKey, (Map<String, Object>) deserializedValue);
             } catch (Throwable t) {
-                log.error("CRITICAL: Failed to deserialize offset data when getting offsets for task with"
-                        + " namespace {}. No value for this data will be returned, which may break the "
-                        + "task or cause it to skip some data. This could either be due to an error in "
-                        + "the connector implementation or incompatible schema.", namespace, t);
+                String message = String.format("CRITICAL: Failed to deserialize offset data when getting offsets for task with"
+                        + " namespace %s.", namespace);
+                if (!failOnError) {
+                    message = message.concat(" No value for this data will be returned, which may break the "
+                            + "task or cause it to skip some data. This could either be due to an error in "
+                            + "the connector implementation or incompatible schema.");
+                }
+
+                log.error(message, t);
+                if (failOnError) {
+                    throw new DataException(message, t);
+                }
             }
         }
 
         return result;
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public <T> Map<Map<String, T>, Map<String, Object>> offsets(Collection<Map<String, T>> partitions) {
+        return offsets(partitions, false);
     }
 
     @Override

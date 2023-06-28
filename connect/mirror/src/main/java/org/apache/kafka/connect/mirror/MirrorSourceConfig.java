@@ -60,7 +60,10 @@ public class MirrorSourceConfig extends MirrorConnectorConfig {
     public static final String CONSUMER_POLL_TIMEOUT_MILLIS = "consumer.poll.timeout.ms";
     private static final String CONSUMER_POLL_TIMEOUT_MILLIS_DOC = "Timeout when polling source cluster.";
     public static final long CONSUMER_POLL_TIMEOUT_MILLIS_DEFAULT = 1000L;
-
+    public static final String FAIL_ON_OFFSET_FETCH_ERRORS_AT_START = "fail.on.offset.fetch.errors.at.start";
+    public static final boolean FAIL_ON_OFFSET_FETCH_ERRORS_AT_START_DEFAULT = false;
+    public static final String FAIL_ON_OFFSET_FETCH_ERRORS_AT_START_DOC = "Whether to fail starting the tasks when there are " +
+            "serialization / de-serialization / offset topic data corruption";
     public static final String REFRESH_TOPICS_ENABLED = REFRESH_TOPICS + ENABLED_SUFFIX;
     private static final String REFRESH_TOPICS_ENABLED_DOC = "Whether to periodically check for new topics and partitions.";
     public static final boolean REFRESH_TOPICS_ENABLED_DEFAULT = true;
@@ -174,6 +177,10 @@ public class MirrorSourceConfig extends MirrorConnectorConfig {
         }
     }
 
+    boolean failOnOffsetFetchErrorsAtStart() {
+        return getBoolean(FAIL_ON_OFFSET_FETCH_ERRORS_AT_START);
+    }
+
     Duration syncTopicConfigsInterval() {
         if (getBoolean(SYNC_TOPIC_CONFIGS_ENABLED)) {
             return Duration.ofSeconds(getLong(SYNC_TOPIC_CONFIGS_INTERVAL_SECONDS));
@@ -269,6 +276,12 @@ public class MirrorSourceConfig extends MirrorConnectorConfig {
                     CONSUMER_POLL_TIMEOUT_MILLIS_DEFAULT,
                     ConfigDef.Importance.LOW,
                     CONSUMER_POLL_TIMEOUT_MILLIS_DOC)
+            .define(
+                    FAIL_ON_OFFSET_FETCH_ERRORS_AT_START,
+                    ConfigDef.Type.BOOLEAN,
+                    FAIL_ON_OFFSET_FETCH_ERRORS_AT_START_DEFAULT,
+                    ConfigDef.Importance.LOW,
+                    FAIL_ON_OFFSET_FETCH_ERRORS_AT_START_DOC)
             .define(
                     REFRESH_TOPICS_ENABLED,
                     ConfigDef.Type.BOOLEAN,

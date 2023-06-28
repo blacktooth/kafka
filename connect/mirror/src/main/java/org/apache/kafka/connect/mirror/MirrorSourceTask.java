@@ -43,6 +43,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.ArrayList;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.concurrent.Semaphore;
 import java.time.Duration;
@@ -104,7 +105,7 @@ public class MirrorSourceTask extends SourceTask {
         consumer = MirrorUtils.newConsumer(config.sourceConsumerConfig("replication-consumer"));
         offsetProducer = MirrorUtils.newProducer(config.offsetSyncsTopicProducerConfig());
         Set<TopicPartition> taskTopicPartitions = config.taskTopicPartitions();
-        Map<TopicPartition, Long> topicPartitionOffsets = loadOffsets(taskTopicPartitions);
+        Map<TopicPartition, Long> topicPartitionOffsets = loadOffsets(taskTopicPartitions, config);
         consumer.assign(topicPartitionOffsets.keySet());
         log.info("Starting with {} previously uncommitted partitions.", topicPartitionOffsets.entrySet().stream()
             .filter(x -> x.getValue() == NON_EXISTING_OFFSET_VALUE).count());
@@ -275,13 +276,15 @@ public class MirrorSourceTask extends SourceTask {
         });
     }
  
-    private Map<TopicPartition, Long> loadOffsets(Set<TopicPartition> topicPartitions) {
-        return topicPartitions.stream().collect(Collectors.toMap(x -> x, this::loadOffset));
+    private Map<TopicPartition, Long> loadOffsets(Set<TopicPartition> topicPartitions, MirrorSourceTaskConfig config) {
+        return topicPartitions.stream().collect(Collectors.toMap(Function.identity(), tp -> loadOffset(tp, config)));
     }
 
-    private Long loadOffset(TopicPartition topicPartition) {
+    private Long loadOffset(TopicPartition topicPartition, MirrorSourceTaskConfig config) {
         Map<String, Object> wrappedPartition = MirrorUtils.wrapPartition(topicPartition, sourceClusterAlias);
-        Map<String, Object> wrappedOffset = context.offsetStorageReader().offset(wrappedPartition);
+        // TODO: Make this configurable
+        boolean failOnError = config.failOnOffsetFetchErrorsAtStart();
+        Map<String, Object> wrappedOffset = context.offsetStorageReader().offset(wrappedPartition, failOnError);
         return MirrorUtils.unwrapOffset(wrappedOffset);
     }
 

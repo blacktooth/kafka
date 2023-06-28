@@ -41,6 +41,21 @@ public interface OffsetStorageReader {
     <T> Map<String, Object> offset(Map<String, T> partition);
 
     /**
+     * Get the offset for the specified partition. If the data isn't already available locally, this
+     * gets it from the backing store, which may require some network round trips.
+     * This implementation can optionally fail if there are serialization / de-serialization or data corruption
+     * with the offset backing store.
+     * For backward compatibility, the default implementation will not fail on errors.
+     *
+     * @param partition object uniquely identifying the partition of data
+     * @param failOnError fail the request on error
+     * @return object uniquely identifying the offset in the partition of data
+     */
+    default <T> Map<String, Object> offset(Map<String, T> partition, boolean failOnError) {
+        return offset(partition);
+    }
+
+    /**
      * <p>
      * Get a set of offsets for the specified partition identifiers. This may be more efficient
      * than calling {@link #offset(Map)} repeatedly.
@@ -58,4 +73,23 @@ public interface OffsetStorageReader {
      * @return a map of partition identifiers to decoded offsets
      */
     <T> Map<Map<String, T>, Map<String, Object>> offsets(Collection<Map<String, T>> partitions);
+
+    /**
+     * <p>
+     * Get a set of offsets for the specified partition identifiers. This may be more efficient
+     * than calling {@link #offset(Map)} repeatedly.
+     * </p>
+     * <p>
+     *     This is the implementation of offsets that can optionally fail when there is an error serializing / de-serializing or
+     *     if data is corrupted in the underlying offset backing store.
+     *     Note: To be backward compatible, there is default implementation provided that doesn't fail.
+     * </p>
+     *
+     * @param partitions set of identifiers for partitions of data
+     * @param failOnError Fail the request on error
+     * @return a map of partition identifiers to decoded offsets
+     */
+    default <T> Map<Map<String, T>, Map<String, Object>> offsets(Collection<Map<String, T>> partitions, boolean failOnError) {
+        return offsets(partitions);
+    }
 }
